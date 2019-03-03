@@ -5,18 +5,22 @@ use std::result;
 
 type Result<T> = result::Result<T, Box<Error>>;
 
-const SEGMENT_SIZE: usize = 1024;
+const SEGMENT_SIZE: usize = 64;
 
 struct MarbleSegment {
     marbles: [u32; SEGMENT_SIZE],
     len: usize,
+    prev_segment: usize,
+    next_segment: usize,
 }
 
 impl MarbleSegment {
-    fn new() -> Self {
+    fn new(prev_segment: usize, next_segment: usize) -> Self {
         Self {
             marbles: [0; SEGMENT_SIZE],
             len: 1,
+            prev_segment,
+            next_segment,
         }
     }
 
@@ -50,13 +54,14 @@ impl MarbleSegment {
         self.len -= 1;
     }
 
-    fn split_off(&mut self) -> MarbleSegment {
+    // prev/next_segment encapsulation is dubious.
+    fn split_off(&mut self, prev_segment: usize, next_segment: usize) -> MarbleSegment {
         let split_at = self.len / 2;
         let mut marbles = [0; SEGMENT_SIZE];
         marbles[..self.len - split_at].copy_from_slice(&self.marbles[split_at..self.len]);
         let len = self.len - split_at;
         self.len = split_at;
-        Self { marbles, len }
+        Self { marbles, len, prev_segment, next_segment }
     }
 }
 
@@ -77,7 +82,7 @@ struct MarbleRing {
 impl MarbleRing {
     fn new() -> Self {
         Self {
-            segments: vec![MarbleSegment::new()],
+            segments: vec![MarbleSegment::new(0, 0)],
             current_segment: 0,
             segment_index: 0,
             len: 0,
@@ -88,11 +93,7 @@ impl MarbleRing {
         while n > self.segment_index {
             n -= self.segment_index + 1;
             loop {
-                self.current_segment = if self.current_segment == 0 {
-                    self.segments.len() - 1
-                } else {
-                    self.current_segment - 1
-                };
+                self.current_segment = self.segments[self.current_segment].prev_segment;
                 if self.segments[self.current_segment].len() > 0 {
                     break;
                 }
@@ -106,8 +107,7 @@ impl MarbleRing {
         self.segment_index += n;
         while self.segment_index > self.segments[self.current_segment].len() {
             self.segment_index -= self.segments[self.current_segment].len();
-            self.current_segment += 1;
-            self.current_segment %= self.segments.len();
+            self.current_segment = self.segments[self.current_segment].next_segment;
         }
     }
 
@@ -117,13 +117,16 @@ impl MarbleRing {
 
     fn insert(&mut self, marble: u32) {
         if self.segments[self.current_segment].needs_split() {
-            let split_segment = self.segments[self.current_segment].split_off();
-            self.segments
-                .insert(self.current_segment + 1, split_segment);
+            let old_next_segment = self.segments[self.current_segment].next_segment;
+            let split_to = self.segments[self.current_segment].split_off(self.current_segment, old_next_segment);
+            self.segments[self.current_segment].next_segment = self.segments.len();
+            self.segments[old_next_segment].prev_segment = self.segments.len();
+            self.segments.push(split_to);
+
             if self.segment_index >= self.segments[self.current_segment].len() {
                 self.segment_index -= self.segments[self.current_segment].len();
-                self.current_segment += 1;
-                self.current_segment %= self.segments.len();
+                // This should be encapsulated better.
+                self.current_segment = self.segments[self.current_segment].next_segment;
             }
         }
         self.segments[self.current_segment].insert(self.segment_index, marble);
@@ -134,7 +137,7 @@ impl MarbleRing {
         self.segments[self.current_segment].remove(self.segment_index);
         while self.segments[self.current_segment].len() == 0 {
             // hack to avoid removing segments
-            self.current_segment = (self.current_segment + 1) % self.segments.len();
+            self.current_segment = self.segments[self.current_segment].next_segment;
         }
         self.len -= 1;
     }
