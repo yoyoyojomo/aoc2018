@@ -1,0 +1,8 @@
+[package]
+name = "d16"
+version = "0.1.0"
+authors = ["Joe Mou <joe@mou.fo>"]
+edition = "2018"
+
+[dependencies]
+failure = "0.1.5"
