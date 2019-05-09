@@ -13,6 +13,7 @@ enum Army {
     Infection,
 }
 
+#[derive(Clone)]
 struct Group {
     army: Army,
     size: u32,
@@ -22,11 +23,12 @@ struct Group {
     initiative: u32,
     weaknesses: Vec<String>,
     immunities: Vec<String>,
+    boost: u32,
 }
 
 impl Group {
     fn effective_power(&self) -> u32 {
-        self.size * self.dmg
+        self.size * (self.dmg + self.boost)
     }
 
     fn damage_to(&self, target: &Group) -> u32 {
@@ -71,10 +73,12 @@ impl FromStr for Group {
             initiative: caps[7].parse()?,
             weaknesses,
             immunities,
+            boost: 0,
         })
     }
 }
 
+#[derive(Clone)]
 struct Simulation {
     groups: Vec<Group>,
 }
@@ -97,6 +101,9 @@ impl Simulation {
                     continue;
                 }
                 let dmg = group.damage_to(&candidate);
+                if dmg == 0 {
+                    continue;
+                }
                 println!(" {} dmg to {}", dmg, idx);
                 candidates.push((dmg, candidate.effective_power(), candidate.initiative, idx));
             }
@@ -165,8 +172,33 @@ fn main() -> Result<()> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
     let mut simulation: Simulation = input.parse()?;
+    let orig_simulation = simulation.clone();
     while simulation.fight() {}
 
+    println!("{}", simulation.groups.iter().map(|g| g.size).sum::<u32>());
+
+    let mut boost = 1;
+    'outer: loop {
+        simulation = orig_simulation.clone();
+        for group in &mut simulation.groups {
+            if group.army == Army::Immune {
+                group.boost = boost;
+            }
+        }
+        let mut num_units = simulation.groups.iter().map(|g| g.size).sum::<u32>();
+        while simulation.fight() {
+            let new_units = simulation.groups.iter().map(|g| g.size).sum::<u32>();
+            if new_units == num_units {
+                boost += 1; // count non-terminating fight as a loss
+                continue 'outer;
+            }
+            num_units = new_units;
+        }
+        match simulation.groups[0].army {
+            Army::Immune => break,
+            Army::Infection => boost += 1,
+        }
+    }
     println!("{}", simulation.groups.iter().map(|g| g.size).sum::<u32>());
 
     Ok(())
